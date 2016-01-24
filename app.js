@@ -1,3 +1,10 @@
+var time_between_refresh = 60000; //time between refresh, 60s
+
+
+
+////////////////////////
+// DO NOT EDIT BELOW  //
+////////////////////////
 fs = require("fs");
 path = require("path");
 cookieParser = require("cookie");
@@ -279,7 +286,7 @@ new_windows.cb = function(cookies){
 
     indexDealabsTimeout = setTimeout(function(){
         this.reload();
-    }.bind(this), 5000);
+    }.bind(this), time_between_refresh);
 }
 
 new_windows.on('loaded', function(){
