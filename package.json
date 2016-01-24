@@ -13,6 +13,7 @@
     "nw": "^0.12.3",
     "request": "^2.67.0"
   },
+  "node-remote": ".dealabs.com",
   "main": "index.html",
   "window": {
     "show": false,

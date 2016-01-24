@@ -1,7 +1,5 @@
 var time_between_refresh = 60000; //time between refresh, 60s
 
-
-
 ////////////////////////
 // DO NOT EDIT BELOW  //
 ////////////////////////
@@ -16,7 +14,7 @@ var win = gui.Window.get();
 var os = require('os');
 var manifest = gui.App.manifest;
 var opener = require('open');
-
+var __dirname = process.cwd();
 var allNotifications = [];
 
 if(gui.App.argv.indexOf('debug') != -1){
@@ -25,16 +23,200 @@ if(gui.App.argv.indexOf('debug') != -1){
 var gui = require('nw.gui');
 var indexDealabsTimeout = 0;
 
+var memwatch = require('memwatch-next');
+
+var internWebBrowser = null;
+
+memwatch.on('leak', function(info) { 
+    debugger;
+});
+
+
+function Settings(){
+    _settings = {
+        _useInternWebBrowser : null,
+        _internWebBrowserStyle : null
+    }
+    this.toJSON=function(){
+        return {
+            useInternWebBrowser:this.useInternWebBrowser,
+            internWebBrowserStyle:this.internWebBrowserStyle
+        }
+    }
+    Object.defineProperty(this, 'useInternWebBrowser', {
+        get: function() {
+            if(_settings._useInternWebBrowser == null)
+                _settings._useInternWebBrowser = this.getSettings().useInternWebBrowser || false;
+            return _settings._useInternWebBrowser;
+        },
+        set: function(value) {
+            _settings._useInternWebBrowser = value;
+            this.updateSettings(this);
+        }
+    });
+    Object.defineProperty(this, 'internWebBrowserStyle', {
+        get: function() {
+            if(_settings._internWebBrowserStyle == null)
+                _settings._internWebBrowserStyle = this.getSettings().internWebBrowserStyle || "default";
+            return _settings._internWebBrowserStyle;
+        },
+        set: function(value) {
+            _settings._internWebBrowserStyle = value;
+            this.updateSettings(this);
+        }
+    });
+
+    this.getSettings=function (){
+        try{
+            cSettings=JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json')).toString());
+        }
+        catch(e){
+            cSettings = {};
+        }    
+        return cSettings;
+    };
+
+    this.updateSettings=function(settings){
+        curFile = fs.openSync(path.join(__dirname, 'config.json'), "w+");
+        try{
+            fs.writeSync(curFile, JSON.stringify(settings, null, 2));
+        }
+        catch(e){
+            alert("One error appear when we will save setting file");
+            console.log(e);
+        }
+        finally{
+            fs.closeSync(curFile);
+        }
+    }
+}
+
+var settings = new Settings(); 
+
+function openLink(link){
+    if(!settings.useInternWebBrowser)
+        opener(link);
+    else{
+        if(internWebBrowser == null){
+            internWebBrowser = gui.Window.open(link, {
+                position: 'center',
+                show : false
+            });
+            internWebBrowser.on('close', function(){
+                this.close(true);
+                internWebBrowser=null;
+            }); 
+            internWebBrowser.on('loaded', function(){
+                try{
+                    var script = this.window.document.createElement("script");
+                    script.innerHTML = fs.readFileSync(path.join(__dirname, "third", "winstate.js")).toString();
+                    this.window.document.body.appendChild(script);
+                }
+                catch(e){
+                    this.show();
+                }
+                if(this.window.location.hostname.match(/dealabs\.com$/) ){
+                    if(this.window.document.getElementById('login_conteneur_right_connected') != null){
+                        updateNotifications(this.window.$);
+                    }
+                }
+
+                change_theme_menu_check=function(theme){
+                    for (var i = 0; i < this.menu.items[0].submenu.items.length; i++) {
+                        cItem = this.menu.items[0].submenu.items[i];
+                        cItem.checked = false;
+                        
+                        if(cItem.label==theme){
+                            cItem.checked = true;
+                        }
+                    };
+                }.bind(this);
+
+                change_theme=function(theme){
+                    settings.internWebBrowserStyle = theme;
+
+                    if(theme == "default"){
+                        this.window.$('[data-intern-web-browser="style"]').remove();
+                    }
+                    else{
+                        try{
+                            var head = this.window.document.head
+                              , style = this.window.document.createElement('style')
+
+                            style.type = 'text/css';
+                            style.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'.css')).toString();
+                            style.dataset.internWebBrowser="style";
+                            head.appendChild(style);
+
+                            if(this.window.location.pathname.match(/^\/forum/) && files.indexOf(theme+"-forum.css") >= 0){
+                                forumStyle = this.window.document.createElement('style');
+                                forumStyle.type = 'text/css';
+                                forumStyle.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'-forum.css')).toString();
+                                forumStyle.dataset.internWebBrowser="style";
+                                head.appendChild(forumStyle);
+                            }
+                        }
+                        catch(e){
+                            console.error(e);
+                        }
+                    }
+                }.bind(this);
+
+                //load setting theme
+                change_theme(settings.internWebBrowserStyle);
+
+                //add theme options
+                try{
+                    files = fs.readdirSync(path.join(__dirname, "themes"));
+                    themes = [];
+                    for(var i = 0; i < files.length; i++) {
+                        if(themeName = files[i].match(/^([^-]*).css/))
+                            themes.push(themeName[1]);
+                    };
+
+                    if(themes.length>0){
+                        submenu = new gui.Menu();
+                        //add default style
+                        themes.splice(0, 0, "default");
+                        for(var i = 0; i < themes.length; i++) {
+                            submenu.append(
+                                new gui.MenuItem({
+                                    type:'checkbox',
+                                    label: themes[i],
+                                    checked:settings.internWebBrowserStyle==themes[i],
+                                    click:function(){
+                                        this.fn(this.theme);
+                                    }.bind({fn:function(theme){change_theme_menu_check(theme);change_theme(theme);}, theme:themes[i]})
+                                })
+                            );
+                        };
+                        var menu = new gui.Menu({type: 'menubar'});
+                        theme_menu = new gui.MenuItem({ label: 'Themes', submenu:submenu});
+                        menu.append(theme_menu);
+                        this.menu=menu;
+                    }
+                }
+                catch(e){
+                    console.error(e);
+                }
+            })
+        }
+        else{
+            internWebBrowser.window.location.href = link;
+        }
+    }
+}
+
 // Create a tray icon
 var tray = new gui.Tray({ title: 'Dealabs-notifier', tooltip: manifest.name , icon: 'img/icon.png' });
 tray.on('click', function(){
-    opener('http://dealabs.com');
+    openLink('http://dealabs.com');
 })
 
 // Create a Menu
 var menu = new gui.Menu();
 
-var notificationItem = new gui.MenuItem({ type: 'normal', label: 'Aucune notification', enabled : false, click : function(){opener('http://www.dealabs.com/notifications.html')} });
+var notificationItem = new gui.MenuItem({ type: 'normal', label: 'Aucune notification', enabled : false, click : function(){openLink('http://www.dealabs.com/notifications.html')} });
 menu.append(notificationItem);
 
 var alerteItem = new gui.MenuItem({ type: 'normal', label: 'Aucune alerte', enabled : false });
@@ -44,6 +226,8 @@ var MPItem = new gui.MenuItem({ type: 'normal', label: 'Aucun MP', enabled : fal
 menu.append(MPItem);
 
 menu.append(new gui.MenuItem({ type: 'separator'}));
+var useInternWebBrowser = new gui.MenuItem({ type: 'checkbox', label: 'Use intern browser', checked:!!settings.useInternWebBrowser ,click : function(){settings.useInternWebBrowser = !settings.useInternWebBrowser}.bind(this) });
+menu.append(useInternWebBrowser);
 
 var exitItem = new gui.MenuItem({ type: 'normal', label: 'Exit', click : function(){win.close();}.bind(this) });
 menu.append(exitItem);
@@ -59,8 +243,11 @@ function destruct(){
         tray.remove();
         tray = null;
     }
-    if(new_windows != true){
-        new_windows.close();
+    if(fetcherWindows != null){
+        fetcherWindows.close();
+    }
+    if(internWebBrowser != null){
+        internWebBrowser.close();
     }
 }
 
@@ -85,26 +272,23 @@ function notify(title, text, icon, url){
 
     if(typeof url != "undefined"){
         notification.onclick = function () {
-            opener(this.url);
+            openLink(this.url);
         }.bind({url:url})
         
     }
 }
 
-
-
-// Open dealabs
-
-var new_windows = gui.Window.open ('http://dealabs.com', {
+var fetcherWindows = gui.Window.open('http://dealabs.com', {
   position: 'center',
   width: screen.availWidth,
   height: screen.availHeight,
   show : false
 });
 
-new_windows.cb = function(cookies){
-    jQuery = this.window.$;
-    this.hide();
+function updateNotifications(jQuery){
+    if(typeof jQuery == "undefined")
+        throw new Error("you need to pass jQuery");
+
     nb_notif = parseInt(jQuery('.notif').text());
     try{
         nb_alertes = parseInt(jQuery("#alertes").text().match(/\(([0-9]*)\)/)[1]);
@@ -152,7 +336,7 @@ new_windows.cb = function(cookies){
                 menuItem = new gui.MenuItem({ type: 'normal',
                     label: (this.nb_notif_commentaires == 0? "Aucune" : this.nb_notif_commentaires)+' notification'+(this.nb_notif_commentaires>1?"s":""),
                     click : function(){
-                        opener('http://www.dealabs.com/notifications.html');
+                        openLink('http://www.dealabs.com/notifications.html');
                     }
                 });
                 if(result.length>0){
@@ -164,7 +348,7 @@ new_windows.cb = function(cookies){
                         }
                         new_allNotifications.push(result[i].url);
 
-                        submenu.append(new gui.MenuItem({ label: result[i].text, click: function(){opener(this.url);}.bind({url:result[i].url}) }));
+                        submenu.append(new gui.MenuItem({ label: result[i].text, click: function(){openLink(this.url);}.bind({url:result[i].url}) }));
                     };
                     menuItem.submenu = submenu;
                 }
@@ -208,7 +392,7 @@ new_windows.cb = function(cookies){
                     type: 'normal',
                     label: (this.nb_alertes == 0? "Aucune" : this.nb_alertes)+' alerte'+(this.nb_alertes>1?"s":""),
                     click : function(){
-                        opener('http://www.dealabs.com/alerts/alerts.html')
+                        openLink('http://www.dealabs.com/alerts/alerts.html')
                     }
                 });
 
@@ -221,7 +405,7 @@ new_windows.cb = function(cookies){
                         }
                         new_allNotifications.push(result[i].url);
 
-                        submenu.append(new gui.MenuItem({ label: result[i].text, click: function(){opener(this.url);}.bind({url:result[i].url}) }));
+                        submenu.append(new gui.MenuItem({ label: result[i].text, click: function(){openLink(this.url);}.bind({url:result[i].url}) }));
                     };
                     menuItem.submenu = submenu;
                 }
@@ -235,7 +419,7 @@ new_windows.cb = function(cookies){
                 type: 'normal',
                 label: (nb_mp == 0? "Aucun" : nb_mp)+' MP'+(nb_mp>1?"s":""),
                 click : function(){
-                    opener($mpContainer.attr('src'))
+                    openLink($mpContainer.attr('src'))
                 }
             });
             cb(null, menuItem);
@@ -250,12 +434,21 @@ new_windows.cb = function(cookies){
         menu.append(menuItem.mp);
 
         menu.append(new gui.MenuItem({ type: 'separator'}));
+        menu.append(useInternWebBrowser);
         menu.append(exitItem);
         menu.append(copyrightItem);
         menu.append(copyright2Item);
 
         // update tray ?
         need_update = false;
+        //si c'est la première fois que l'on le lance
+        try{
+            if(tray.menu.items[0].enabled === false)
+                need_update = true;
+        }
+        catch(e){
+
+        }
         for (var i = 0; i < menu.items.length; i++) {
             tmpLength = [];
             if(typeof tray.menu.items[i].submenu != "undefined" && typeof tray.menu.items[i].submenu.items != "undefined") 
@@ -281,15 +474,32 @@ new_windows.cb = function(cookies){
         };
         if(need_update)
             tray.menu = menu;
+
+        if(indexDealabsTimeout != null){
+            clearTimeout(indexDealabsTimeout);
+        }
+        
+        indexDealabsTimeout = setTimeout(function(){
+            if(fetcherWindows != null){
+                fetcherWindows.window = null;
+                fetcherWindows.reload();
+            }
+        }.bind(this), time_between_refresh);
     })
-
-
-    indexDealabsTimeout = setTimeout(function(){
-        this.reload();
-    }.bind(this), time_between_refresh);
 }
 
-new_windows.on('loaded', function(){
+fetcherWindows.cb = function(){
+    this.hide();
+
+    updateNotifications(this.window.$);
+
+
+}
+
+fetcherWindows.on('loaded', function(){
+    if(this.window.localStorage.getItem("knows_mobile_apps_exist") != true)
+        this.window.localStorage.setItem("knows_mobile_apps_exist", true);
+    
     var _self = this;
     if(this.window.location.hostname.match(/dealabs\.com$/) ){
         if(this.window.location.pathname == "/index.php" || this.window.location.pathname == "/"){
@@ -315,3 +525,5 @@ new_windows.on('loaded', function(){
         }
     }
 });
+
+
