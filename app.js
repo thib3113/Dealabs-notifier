@@ -23,13 +23,8 @@ if(gui.App.argv.indexOf('debug') != -1){
 var gui = require('nw.gui');
 var indexDealabsTimeout = 0;
 
-var memwatch = require('memwatch-next');
-
 var internWebBrowser = null;
 
-memwatch.on('leak', function(info) { 
-    debugger;
-});
 
 
 function Settings(){
