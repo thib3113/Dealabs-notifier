@@ -1,6 +1,6 @@
 {
   "name": "Dealabs-notifier",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "A notification app for dealabs",
   "author": "Thibaut SEVERAC <thib3113@gmail.com>",
   "scripts": {
