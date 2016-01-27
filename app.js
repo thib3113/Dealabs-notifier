@@ -26,6 +26,12 @@ var indexDealabsTimeout = 0;
 var internWebBrowser = null;
 
 
+var memwatch = require('memwatch-next');
+memwatch.on('leak', function(info) { 
+    console.log(info);
+    notify("memory leak detected !", info.reason);
+    // debugger;
+});
 
 function Settings(){
     _settings = {
@@ -101,99 +107,105 @@ function openLink(link){
                 this.close(true);
                 internWebBrowser=null;
             }); 
-            internWebBrowser.on('loaded', function(){
-                try{
-                    var script = this.window.document.createElement("script");
-                    script.innerHTML = fs.readFileSync(path.join(__dirname, "third", "winstate.js")).toString();
-                    this.window.document.body.appendChild(script);
-                }
-                catch(e){
-                    this.show();
-                }
-                if(this.window.location.hostname.match(/dealabs\.com$/) ){
-                    if(this.window.document.getElementById('login_conteneur_right_connected') != null){
-                        updateNotifications(this.window.$);
-                    }
-                }
+            internWebBrowser.on('document-start', function(){
+                this.window.addEventListener("load", function(e){
+                    if(typeof e.target.getElementsByTagName('head') != "undefined")
+                        head = e.target.getElementsByTagName('head');
 
-                change_theme_menu_check=function(theme){
-                    for (var i = 0; i < this.menu.items[0].submenu.items.length; i++) {
-                        cItem = this.menu.items[0].submenu.items[i];
-                        cItem.checked = false;
-                        
-                        if(cItem.label==theme){
-                            cItem.checked = true;
+                    try{
+                        var script = this.window.document.createElement("script");
+                        script.innerHTML = fs.readFileSync(path.join(__dirname, "third", "winstate.js")).toString();
+                        this.window.document.body.appendChild(script);
+                    }
+                    catch(e){
+                        this.show();
+                    }
+                    if(this.window.location.hostname.match(/dealabs\.com$/) ){
+                        if(this.window.document.getElementById('login_conteneur_right_connected') != null){
+                            updateNotifications(this.window.$);
                         }
-                    };
-                }.bind(this);
-
-                change_theme=function(theme){
-                    settings.internWebBrowserStyle = theme;
-
-                    if(theme == "default"){
-                        this.window.$('[data-intern-web-browser="style"]').remove();
                     }
-                    else{
-                        try{
-                            var head = this.window.document.head
-                              , style = this.window.document.createElement('style')
 
-                            style.type = 'text/css';
-                            style.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'.css')).toString();
-                            style.dataset.internWebBrowser="style";
-                            head.appendChild(style);
+                    change_theme_menu_check=function(theme){
+                        for (var i = 0; i < this.menu.items[0].submenu.items.length; i++) {
+                            cItem = this.menu.items[0].submenu.items[i];
+                            cItem.checked = false;
+                            
+                            if(cItem.label==theme){
+                                cItem.checked = true;
+                            }
+                        };
+                    }.bind(this);
 
-                            if(this.window.location.pathname.match(/^\/forum/) && files.indexOf(theme+"-forum.css") >= 0){
-                                forumStyle = this.window.document.createElement('style');
-                                forumStyle.type = 'text/css';
-                                forumStyle.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'-forum.css')).toString();
-                                forumStyle.dataset.internWebBrowser="style";
-                                head.appendChild(forumStyle);
+                    change_theme=function(theme){
+                        settings.internWebBrowserStyle = theme;
+
+                        if(theme == "default"){
+                            this.window.$('[data-intern-web-browser="style"]').remove();
+                        }
+                        else{
+                            try{
+                                var head = this.window.document.head
+                                  , style = this.window.document.createElement('style')
+
+                                style.type = 'text/css';
+                                style.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'.css')).toString();
+                                style.dataset.internWebBrowser="style";
+                                head.appendChild(style);
+
+                                if(this.window.location.pathname.match(/^\/forum/) && files.indexOf(theme+"-forum.css") >= 0){
+                                    forumStyle = this.window.document.createElement('style');
+                                    forumStyle.type = 'text/css';
+                                    forumStyle.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'-forum.css')).toString();
+                                    forumStyle.dataset.internWebBrowser="style";
+                                    head.appendChild(forumStyle);
+                                }
+                            }
+                            catch(e){
+                                console.error(e);
                             }
                         }
-                        catch(e){
-                            console.error(e);
+                    }.bind(this);
+
+                    //load setting theme
+                    change_theme(settings.internWebBrowserStyle);
+
+                    //add theme options
+                    try{
+                        files = fs.readdirSync(path.join(__dirname, "themes"));
+                        themes = [];
+                        for(var i = 0; i < files.length; i++) {
+                            if(themeName = files[i].match(/^([^-]*).css/))
+                                themes.push(themeName[1]);
+                        };
+
+                        if(themes.length>0){
+                            submenu = new gui.Menu();
+                            //add default style
+                            themes.splice(0, 0, "default");
+                            for(var i = 0; i < themes.length; i++) {
+                                submenu.append(
+                                    new gui.MenuItem({
+                                        type:'checkbox',
+                                        label: themes[i],
+                                        checked:settings.internWebBrowserStyle==themes[i],
+                                        click:function(){
+                                            this.fn(this.theme);
+                                        }.bind({fn:function(theme){change_theme_menu_check(theme);change_theme(theme);}, theme:themes[i]})
+                                    })
+                                );
+                            };
+                            var menu = new gui.Menu({type: 'menubar'});
+                            theme_menu = new gui.MenuItem({ label: 'Themes', submenu:submenu});
+                            menu.append(theme_menu);
+                            this.menu=menu;
                         }
                     }
-                }.bind(this);
-
-                //load setting theme
-                change_theme(settings.internWebBrowserStyle);
-
-                //add theme options
-                try{
-                    files = fs.readdirSync(path.join(__dirname, "themes"));
-                    themes = [];
-                    for(var i = 0; i < files.length; i++) {
-                        if(themeName = files[i].match(/^([^-]*).css/))
-                            themes.push(themeName[1]);
-                    };
-
-                    if(themes.length>0){
-                        submenu = new gui.Menu();
-                        //add default style
-                        themes.splice(0, 0, "default");
-                        for(var i = 0; i < themes.length; i++) {
-                            submenu.append(
-                                new gui.MenuItem({
-                                    type:'checkbox',
-                                    label: themes[i],
-                                    checked:settings.internWebBrowserStyle==themes[i],
-                                    click:function(){
-                                        this.fn(this.theme);
-                                    }.bind({fn:function(theme){change_theme_menu_check(theme);change_theme(theme);}, theme:themes[i]})
-                                })
-                            );
-                        };
-                        var menu = new gui.Menu({type: 'menubar'});
-                        theme_menu = new gui.MenuItem({ label: 'Themes', submenu:submenu});
-                        menu.append(theme_menu);
-                        this.menu=menu;
+                    catch(e){
+                        console.error(e);
                     }
-                }
-                catch(e){
-                    console.error(e);
-                }
+                })
+
             })
         }
         else{
@@ -476,7 +488,7 @@ function updateNotifications(jQuery){
         
         indexDealabsTimeout = setTimeout(function(){
             if(fetcherWindows != null){
-                fetcherWindows.window = null;
+                global.gc();
                 fetcherWindows.reload();
             }
         }.bind(this), time_between_refresh);
@@ -485,10 +497,7 @@ function updateNotifications(jQuery){
 
 fetcherWindows.cb = function(){
     this.hide();
-
     updateNotifications(this.window.$);
-
-
 }
 
 fetcherWindows.on('loaded', function(){
@@ -516,7 +525,34 @@ fetcherWindows.on('loaded', function(){
             });
         }
         else if(this.window.location.pathname == "/forum.html"){
-
+            // <div class="title_thread_contener">
+            //                 <div class="right_cat_part">
+            //                     <div class="img_bloc">
+            //                         <img src="http://static.dealabs.com/profile_image/54abfa40c54e59.85890969.png">
+            //                     </div>
+            //                     <div class="info_bloc">
+            //                         <p class="last">Dernière réponse :</p>
+            //                                                             <p>Il y a 3 h 13 min  par <a href="http://www.dealabs.com/16/ZeWaren">ZeWaren</a></p>
+            //                                                         </div>
+            //                 </div>
+            //                 <div class="center_cat_part">
+            //                     <div class="stats_bloc">
+            //                         <p>20</p>
+            //                         <p>Réponses</p>
+            //                     </div>
+            //                     <div class="stats_bloc">
+            //                         <p>200</p>
+            //                         <p>Vues</p>
+            //                     </div>
+            //                 </div>
+            //                 <div class="left_cat_part">
+            //                     <div class="title"><a href="http://www.dealabs.com/forums/le-site/annonces--nouveauts-du-site-modifications/dealabs-notifier--application-de-notification/18749?page=2#discussed" class="non_lu"> Dealabs-notifier : application de notification </a></div>                             <div class="auteur_pagination_div">
+            //                         <p>Lancé par <a href="http://www.dealabs.com/33797/thib3113">thib3113</a> le 23/01/2016 à 23:47:05 </p>
+            //                                         <a href="http://www.dealabs.com/forums/le-site/annonces--nouveauts-du-site-modifications/dealabs-notifier--application-de-notification/18749#discussed">1</a>
+            //                     <a href="http://www.dealabs.com/forums/le-site/annonces--nouveauts-du-site-modifications/dealabs-notifier--application-de-notification/18749?page=2#discussed">2</a>
+            //                                     </div>
+            //                 </div>
+            //             </div>
         }
     }
 });

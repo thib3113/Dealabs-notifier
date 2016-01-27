@@ -14,6 +14,7 @@
     "open": "0.0.5",
     "request": "^2.67.0"
   },
+  "js-flags": "--expose-gc",
   "node-remote": ".dealabs.com",
   "main": "index.html",
   "window": {
