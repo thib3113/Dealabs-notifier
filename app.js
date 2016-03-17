@@ -20,18 +20,87 @@ var allNotifications = [];
 if(gui.App.argv.indexOf('debug') != -1){
     win.showDevTools();
 }
+
 var gui = require('nw.gui');
 var indexDealabsTimeout = 0;
 
 var internWebBrowser = null;
 
+// var memwatch = require('memwatch-next');
+// memwatch.on('leak', function(info) { 
+//     console.log(info);
+//     notify("memory leak detected !", info.reason);
+// });
 
-var memwatch = require('memwatch-next');
-memwatch.on('leak', function(info) { 
-    console.log(info);
-    notify("memory leak detected !", info.reason);
-    // debugger;
-});
+/**
+ *
+ * Author: Robert (CMoses) KaÅ‚amaÅ„ski
+ *
+ * DOM tree and JS object disintegrator.
+ *
+ * When DOM node is given then this function will break DOM tree into unreferenced nodes and remove all attributes.
+ * If JS object is passed then it will be broken down into unreferenced elements. Also all DOM nodes referenced by
+ * object will be destroyed.
+ *
+ */
+function blackhole( object, path) {
+    if(Object.is(object, process) || object === global)
+        return;
+
+    debugger;
+    var child
+      , type
+      , attrs
+      , keys
+      , i;
+    path = path || '';
+    // Object must not be empty.
+    if ( object ) {
+        // DOM node.
+        if ( object instanceof Node ) {
+            // debugger;
+            if ( object instanceof HTMLDocument ) {
+                path = 'DOCUMENT';
+            } else {
+                path += '>' + object.nodeName;
+            }
+            // Remove attributes.
+            attrs = object.attributes;
+            if ( attrs ) {
+                for ( i=attrs.length-1; i>=0; i-- ) {
+                    // console.log('X DOM: ' + path + '[' + attrs[i].name + '=' + attrs[i].value + ']');
+                    attrs[i] = null;
+                }
+            }
+
+            // Remove childs.
+            while ( (child = object.firstChild) ) {
+                // console.log('X DOM: ' + path + '>' + child.nodeName);
+                blackhole(child, path);
+                child.remove();
+            }
+        }
+
+        // JS object.
+        else if ( typeof object === 'object' ) {
+
+            // debugger;
+            keys = Object.keys(object);
+            for ( i=keys.length-1; i>=0; i-- ) {
+                console.log('X OBJ: ' + path + '.' + keys[i]);
+                // JS function.
+                if ( typeof object[keys[i]] === 'function' ) {
+                    object[keys[i]] = null;
+                }
+                // JS object.
+                else if ( typeof object === 'object' ) {
+                    blackhole(object[keys[i]], path + '.' + keys[i]);
+                }
+                object[keys[i]] = null;
+            }
+        }
+    }
+}
 
 function Settings(){
     _settings = {
@@ -101,28 +170,20 @@ function openLink(link){
         if(internWebBrowser == null){
             internWebBrowser = gui.Window.open(link, {
                 position: 'center',
+                width: screen.availWidth,
+                height: screen.availHeight,
                 show : false
-            });
-            internWebBrowser.on('close', function(){
-                this.close(true);
-                internWebBrowser=null;
-            }); 
-            internWebBrowser.on('document-start', function(){
-                this.window.addEventListener("load", function(e){
-                    if(typeof e.target.getElementsByTagName('head') != "undefined")
-                        head = e.target.getElementsByTagName('head');
-
-                    try{
-                        var script = this.window.document.createElement("script");
-                        script.innerHTML = fs.readFileSync(path.join(__dirname, "third", "winstate.js")).toString();
-                        this.window.document.body.appendChild(script);
-                    }
-                    catch(e){
-                        this.show();
-                    }
+            }, function(window){
+                internWebBrowser = window;            
+                internWebBrowser.on('close', function(){
+                    this.close(true);
+                    internWebBrowser=null;
+                }.bind(internWebBrowser)); 
+                internWebBrowser.on('loaded', function(e){
+                    this.show();
                     if(this.window.location.hostname.match(/dealabs\.com$/) ){
                         if(this.window.document.getElementById('login_conteneur_right_connected') != null){
-                            updateNotifications(this.window.$);
+                            updateNotifications(this.window, this.window);
                         }
                     }
 
@@ -204,9 +265,8 @@ function openLink(link){
                     catch(e){
                         console.error(e);
                     }
-                })
-
-            })
+                }.bind(internWebBrowser))
+            });
         }
         else{
             internWebBrowser.window.location.href = link;
@@ -232,6 +292,9 @@ menu.append(alerteItem);
 var MPItem = new gui.MenuItem({ type: 'normal', label: 'Aucun MP', enabled : false });
 menu.append(MPItem);
 
+var forumItem = new gui.MenuItem({ type: 'normal', label: 'Aucun nouveau message', enabled : false });
+menu.append(forumItem);
+
 menu.append(new gui.MenuItem({ type: 'separator'}));
 var useInternWebBrowser = new gui.MenuItem({ type: 'checkbox', label: 'Use intern browser', checked:!!settings.useInternWebBrowser ,click : function(){settings.useInternWebBrowser = !settings.useInternWebBrowser}.bind(this) });
 menu.append(useInternWebBrowser);
@@ -240,9 +303,12 @@ var exitItem = new gui.MenuItem({ type: 'normal', label: 'Exit', click : functio
 menu.append(exitItem);
 var copyrightItem = new gui.MenuItem({ type: 'normal', label: 'Par thib3113', enabled: false });
 menu.append(copyrightItem);
-var copyright2Item = new gui.MenuItem({ type: 'normal', label: 'non affilié à Dealabs', enabled: false });
+
+var copyright2Item = new gui.MenuItem({ type: 'normal', label: 'non affiliÃ© Ã Â Dealabs', enabled: false });
 menu.append(copyright2Item);
 tray.menu = menu;
+
+var fetcherWindows = null;
 
 function destruct(){
     if(tray != null){
@@ -262,10 +328,11 @@ window.onbeforeunload=function(){
     destruct();
 }
 win.on('close', function() {
+    debugger;
     console.log("close");
-    this.hide();
+    win.hide();
     destruct();
-    this.close(true);
+    win.close(true);
 });
 
 
@@ -285,14 +352,47 @@ function notify(title, text, icon, url){
     }
 }
 
-var fetcherWindows = gui.Window.open('http://dealabs.com', {
+gui.Window.open('http://www.dealabs.com/forum/notifications.html', {
   position: 'center',
   width: screen.availWidth,
   height: screen.availHeight,
   show : false
+}, function(cWindows){
+    fetcherWindows = cWindows;
+    cWindows.cb = function(){
+        cWindows.hide();
+        updateNotifications(cWindows.window.$, cWindows.window);
+    }
+    cWindows.on('loaded', function(){
+        cWindows.window.blackhole = blackhole;
+        if(cWindows.window.localStorage.getItem("knows_mobile_apps_exist") != true)
+            cWindows.window.localStorage.setItem("knows_mobile_apps_exist", true);
+            
+        var _self = cWindows;
+        if(cWindows.window.location.hostname.match(/dealabs\.com$/) ){
+            cWindows.cookies.getAll({}, function(cookies){
+                authentified = false;
+                for( name in cookies){
+                    if(cookies[name].name == "dealabs_token" && cookies[name].value != ""){
+                        authentified = true;
+                        break;
+                    }
+                }
+                if(authentified){
+                    _self.cb(cookies);
+                }
+                else{
+                    _self.show();
+                    _self.window.switch_display('#popup_center_login', '', 'show');
+                }
+            });
+        }
+    })
 });
 
-function updateNotifications(jQuery){
+var lastForumMenuItem = null;
+
+function updateNotifications(jQuery, current_window){
     if(typeof jQuery == "undefined")
         throw new Error("you need to pass jQuery");
 
@@ -308,7 +408,7 @@ function updateNotifications(jQuery){
     new_allNotifications = [];
     async.series({
         notifications: function(cb){
-            //on récup les notifs 
+            //on rÃ©cup les notifs 
             current_notifs = [];
             $notif_container = jQuery("#commentaires_part .item a.left_part_list");
             for (var i = $notif_container.length - 1; i >= 0; i--) {
@@ -348,7 +448,7 @@ function updateNotifications(jQuery){
                 });
                 if(result.length>0){
                     submenu = new gui.Menu();
-                    //on regarde si elles sont déjà affichés
+                    //on regarde si elles sont dÃ©jÃ  affichÃ©s
                     for (var i = result.length - 1; i >= 0; i--) {
                         if(allNotifications.indexOf(result[i].url) == '-1'){
                             notify("Vous avez une nouvelle notification", result[i].text, result[i].icon, result[i].url);
@@ -363,7 +463,7 @@ function updateNotifications(jQuery){
             }.bind({nb_notif_commentaires:this.nb_notif_commentaires}));
         }.bind({nb_notif_commentaires:nb_notif_commentaires}),
         alertes: function(cb){
-            //on récup les alertes 
+            //on rÃ©cup les alertes 
             current_alertes = [];
             $alert_container = jQuery("#alertes_part .item a.left_part_list");
             for (var i = $alert_container.length - 1; i >= 0; i--) {
@@ -405,7 +505,7 @@ function updateNotifications(jQuery){
 
                 if(result.length>0){
                     submenu = new gui.Menu();
-                    //on regarde si elles sont déjà affichés
+                    //on regarde si elles sont dÃ©jÃ  affichÃ©s
                     for (var i = result.length - 1; i >= 0; i--) {
                         if(allNotifications.indexOf(result[i].url) == '-1'){
                             notify("Vous avez une nouvelle alerte", result[i].text, result[i].icon, result[i].url);
@@ -430,7 +530,72 @@ function updateNotifications(jQuery){
                 }
             });
             cb(null, menuItem);
-        }
+        },
+        forum: function(cb){
+            menuItem = new gui.MenuItem({
+                type: 'normal',
+                label: "Aucun nouveau message",
+                click : function(){
+                    openLink("http://www.dealabs.com/forum/notifications.html")
+                }
+            });
+
+            if(this.location.pathname == "/forum/notifications.html"){
+                $forumNotifContainer = jQuery('#body');
+                $forumNotifs = $forumNotifContainer.find('.title_thread_contener');
+                nb_notifs=$forumNotifs.length;
+                menuItem.label = (nb_notifs == 0? "Aucun" : nb_notifs)+' nouveau'+(nb_notifs>1?'x':'')+' message'+(nb_notifs>1?"s":""); 
+                if(nb_notifs>0){
+                    
+                    //start by download images
+                    async.map($forumNotifs.find('.img_bloc img'), function(item, cb){
+                        var imagePath = path.join(os.tmpdir(), path.join(manifest.name+'-'+path.basename(item.src)));
+                        fs.access(imagePath, fs.F_OK, function(err) {
+                            if (!err) {
+                                cb(null, item);                        
+                            }
+                            else {
+                                var r = request(item.src);
+                                r.cb = cb;
+                                r.item = item;
+                                r.on('response',  function (res) {
+                                   res.pipe(fs.createWriteStream(imagePath, {flag:"w+"})); 
+                                });
+                                r.on('end', function(){
+                                    this.cb(null, this.item);
+                                })
+                            }
+                        });
+                    }, 
+                    function(err, result){
+                        submenu = new gui.Menu();
+                        //on regarde si elles sont dÃ©jÃ  affichÃ©s
+                        for (var i = $forumNotifs.length - 1; i >= 0; i--) {
+                            $notif = this.window.$($forumNotifs[i]);
+                            notif = {
+                                url : $notif.find('.auteur_pagination_div a:last').attr('href'),
+                                icon : path.join(os.tmpdir(), path.join(manifest.name+'-'+path.basename($notif.find('.img_bloc img').attr('src')))),
+                                text : $notif.find('.title').text().trim()+" par "+$notif.find('.info_bloc a').text().trim()
+                            }
+                            if(allNotifications.indexOf(notif.url) == '-1'){
+                                notify("Nouveau message sur le forum", notif.text, notif.icon, notif.url);
+                            }
+                            new_allNotifications.push(notif.url);
+
+                            submenu.append(new gui.MenuItem({ label: notif.text, click: function(){openLink(this.url);}.bind({url:notif.url}) }));
+                        };
+                        menuItem.submenu = submenu;
+                        this.cb(null, menuItem);
+                    }.bind({window:this,cb:cb}));
+                }
+            }
+            else{
+                if(lastForumMenuItem != null){
+                    menuItem = lastForumMenuItem;
+                }
+                cb(null, menuItem);
+            }
+        }.bind(current_window)
     }, function(err, menuItem){
         //update current notifications
         allNotifications = new_allNotifications;
@@ -439,6 +604,7 @@ function updateNotifications(jQuery){
         menu.append(menuItem.notifications);
         menu.append(menuItem.alertes);
         menu.append(menuItem.mp);
+        menu.append(menuItem.forum);
 
         menu.append(new gui.MenuItem({ type: 'separator'}));
         menu.append(useInternWebBrowser);
@@ -448,14 +614,14 @@ function updateNotifications(jQuery){
 
         // update tray ?
         need_update = false;
-        //si c'est la première fois que l'on le lance
+        //si c'est la premiÃ¨re fois que l'on le lance
         try{
             if(tray.menu.items[0].enabled === false)
                 need_update = true;
         }
         catch(e){
-
         }
+
         for (var i = 0; i < menu.items.length; i++) {
             tmpLength = [];
             if(typeof tray.menu.items[i].submenu != "undefined" && typeof tray.menu.items[i].submenu.items != "undefined") 
@@ -487,74 +653,14 @@ function updateNotifications(jQuery){
         }
         
         indexDealabsTimeout = setTimeout(function(){
-            if(fetcherWindows != null){
-                global.gc();
-                fetcherWindows.reload();
-            }
-        }.bind(this), time_between_refresh);
+            global.gc();
+            this.reload();
+            // if(fetcherWindows != null){
+            //     // blackhole(fetcherWindows.window.document,null,  fetcherWindows.window);
+            //     fetcherWindows.reload();
+            // }
+        }.bind(fetcherWindows), time_between_refresh);
     })
 }
-
-fetcherWindows.cb = function(){
-    this.hide();
-    updateNotifications(this.window.$);
-}
-
-fetcherWindows.on('loaded', function(){
-    if(this.window.localStorage.getItem("knows_mobile_apps_exist") != true)
-        this.window.localStorage.setItem("knows_mobile_apps_exist", true);
-    
-    var _self = this;
-    if(this.window.location.hostname.match(/dealabs\.com$/) ){
-        if(this.window.location.pathname == "/index.php" || this.window.location.pathname == "/"){
-            this.cookies.getAll({}, function(cookies){
-                authentified = false;
-                for( name in cookies){
-                    if(cookies[name].name == "dealabs_token" && cookies[name].value != ""){
-                        authentified = true;
-                        break;
-                    }
-                }
-                if(authentified){
-                    _self.cb(cookies);
-                }
-                else{
-                    _self.show();
-                    _self.window.switch_display('#popup_center_login', '', 'show');
-                }
-            });
-        }
-        else if(this.window.location.pathname == "/forum.html"){
-            // <div class="title_thread_contener">
-            //                 <div class="right_cat_part">
-            //                     <div class="img_bloc">
-            //                         <img src="http://static.dealabs.com/profile_image/54abfa40c54e59.85890969.png">
-            //                     </div>
-            //                     <div class="info_bloc">
-            //                         <p class="last">Dernière réponse :</p>
-            //                                                             <p>Il y a 3 h 13 min  par <a href="http://www.dealabs.com/16/ZeWaren">ZeWaren</a></p>
-            //                                                         </div>
-            //                 </div>
-            //                 <div class="center_cat_part">
-            //                     <div class="stats_bloc">
-            //                         <p>20</p>
-            //                         <p>Réponses</p>
-            //                     </div>
-            //                     <div class="stats_bloc">
-            //                         <p>200</p>
-            //                         <p>Vues</p>
-            //                     </div>
-            //                 </div>
-            //                 <div class="left_cat_part">
-            //                     <div class="title"><a href="http://www.dealabs.com/forums/le-site/annonces--nouveauts-du-site-modifications/dealabs-notifier--application-de-notification/18749?page=2#discussed" class="non_lu"> Dealabs-notifier : application de notification </a></div>                             <div class="auteur_pagination_div">
-            //                         <p>Lancé par <a href="http://www.dealabs.com/33797/thib3113">thib3113</a> le 23/01/2016 à 23:47:05 </p>
-            //                                         <a href="http://www.dealabs.com/forums/le-site/annonces--nouveauts-du-site-modifications/dealabs-notifier--application-de-notification/18749#discussed">1</a>
-            //                     <a href="http://www.dealabs.com/forums/le-site/annonces--nouveauts-du-site-modifications/dealabs-notifier--application-de-notification/18749?page=2#discussed">2</a>
-            //                                     </div>
-            //                 </div>
-            //             </div>
-        }
-    }
-});
 
 

@@ -1,6 +1,6 @@
 {
   "name": "Dealabs-notifier",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "A notification app for dealabs",
   "author": "Thibaut SEVERAC <thib3113@gmail.com>",
   "scripts": {
@@ -10,12 +10,12 @@
   "dependencies": {
     "async": "^1.5.2",
     "cookie": "^0.2.3",
-    "nw": "^0.12.3",
+    "nw": "^0.13.0-rc3sdk",
     "open": "0.0.5",
     "request": "^2.67.0"
   },
   "js-flags": "--expose-gc",
-  "node-remote": ".dealabs.com",
+  "node-remote": "http://*.dealabs.com",
   "main": "index.html",
   "window": {
     "show": false,
