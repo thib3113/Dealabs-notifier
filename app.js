@@ -1,4 +1,5 @@
 var time_between_refresh = 60000; //time between refresh, 60s
+var logLevel = 2; //2 = verbose, 1 = warnings, 0 = errors
 
 ////////////////////////
 // DO NOT EDIT BELOW  //
@@ -9,26 +10,34 @@ cookieParser = require("cookie");
 var http = require('http');
 var async = require('async');
 var request = require('request');
+
 var gui = require('nw.gui');
 var win = gui.Window.get();
+var debugMode = (gui.App.argv.indexOf('debug') != -1);
+if(debugMode){
+    win.showDevTools();
+}
+
 var os = require('os');
 var manifest = gui.App.manifest;
 var opener = require('open');
 var __dirname = process.cwd();
 var allNotifications = [];
-
-if(gui.App.argv.indexOf('debug') != -1){
-    win.showDevTools();
+var logger = new Logger(logLevel, manifest.name);
+function Log(pMessage, pType, pStackTrace, pGroup){
+    logger.log(pMessage, pType, pStackTrace, pGroup)
+    if(typeof pMessage == "undefined")
+        console.trace();
 }
 
-var gui = require('nw.gui');
-var indexDealabsTimeout = 0;
+var indexDealabsTimeout = null;
 
 var internWebBrowser = null;
 
+
 // var memwatch = require('memwatch-next');
 // memwatch.on('leak', function(info) { 
-//     console.log(info);
+//     Log(info);
 //     notify("memory leak detected !", info.reason);
 // });
 
@@ -47,7 +56,7 @@ function blackhole( object, path) {
     if(Object.is(object, process) || object === global)
         return;
 
-    debugger;
+    // debugger;
     var child
       , type
       , attrs
@@ -68,14 +77,14 @@ function blackhole( object, path) {
             attrs = object.attributes;
             if ( attrs ) {
                 for ( i=attrs.length-1; i>=0; i-- ) {
-                    // console.log('X DOM: ' + path + '[' + attrs[i].name + '=' + attrs[i].value + ']');
+                    // Log('X DOM: ' + path + '[' + attrs[i].name + '=' + attrs[i].value + ']');
                     attrs[i] = null;
                 }
             }
 
             // Remove childs.
             while ( (child = object.firstChild) ) {
-                // console.log('X DOM: ' + path + '>' + child.nodeName);
+                // Log('X DOM: ' + path + '>' + child.nodeName);
                 blackhole(child, path);
                 child.remove();
             }
@@ -87,7 +96,7 @@ function blackhole( object, path) {
             // debugger;
             keys = Object.keys(object);
             for ( i=keys.length-1; i>=0; i-- ) {
-                console.log('X OBJ: ' + path + '.' + keys[i]);
+                Log('X OBJ: ' + path + '.' + keys[i]);
                 // JS function.
                 if ( typeof object[keys[i]] === 'function' ) {
                     object[keys[i]] = null;
@@ -101,6 +110,7 @@ function blackhole( object, path) {
         }
     }
 }
+
 
 function Settings(){
     _settings = {
@@ -153,7 +163,7 @@ function Settings(){
         }
         catch(e){
             alert("One error appear when we will save setting file");
-            console.log(e);
+            Log(e);
         }
         finally{
             fs.closeSync(curFile);
@@ -173,21 +183,70 @@ function openLink(link){
                 width: screen.availWidth,
                 height: screen.availHeight,
                 show : false
-            }, function(window){
-                internWebBrowser = window;            
+            },
+            function(nwWindow){
+                setTheme = function(theme){                    
+                    console.log("setTheme("+theme+")");
+                    if(theme == "default"){
+                        Array.prototype.forEach.call( this.window.document.querySelectorAll('[data-intern-web-browser="style"]'), function( node ) {
+                            node.parentNode.removeChild( node );
+                        });
+                    }
+                    else{
+                        try{
+                            var head = this.window.document.head
+                              , style = this.window.document.createElement('style')
+
+                            style.type = 'text/css';
+                            style.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'.css')).toString();
+                            style.dataset.internWebBrowser="style";
+                            head.appendChild(style);
+
+                            if(this.window.location.pathname.match(/^\/forum/) && files.indexOf(theme+"-forum.css") >= 0){
+                                forumStyle = this.window.document.createElement('style');
+                                forumStyle.type = 'text/css';
+                                forumStyle.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'-forum.css')).toString();
+                                forumStyle.dataset.internWebBrowser="style";
+                                head.appendChild(forumStyle);
+                            }
+                        }
+                        catch(e){
+                            console.error(e);
+                        }
+                    }
+                }
+
+                nwWindow.showDevTools();
+                nwWindow.on('loading', function(){console.log('loading')});
+                nwWindow.on('loaded', function(){console.log('loaded')});
+                nwWindow.on('document-start', function(){console.log('document-start')});
+                nwWindow.on('document-end', function(){
+                    this.window.setTheme = setTheme;
+                        // debugger;
+                    setTheme(settings.internWebBrowserStyle);
+                    console.log('document-end')}.bind(nwWindow));
+                nwWindow.on('navigation', function(){console.log('navigation')});
+                
+                nwWindow.window.setTheme = setTheme;
+
+                internWebBrowser = nwWindow;            
                 internWebBrowser.on('close', function(){
                     this.close(true);
                     internWebBrowser=null;
                 }.bind(internWebBrowser)); 
                 internWebBrowser.on('loaded', function(e){
+                    // debugger;
+                    // this.window.setTheme(settings.internWebBrowserStyle);
+
                     this.show();
                     if(this.window.location.hostname.match(/dealabs\.com$/) ){
                         if(this.window.document.getElementById('login_conteneur_right_connected') != null){
-                            updateNotifications(this.window, this.window);
+                            updateNotifications(this.window.jQuery, this.window);
                         }
                     }
 
                     change_theme_menu_check=function(theme){
+                        settings.internWebBrowserStyle = theme;
                         for (var i = 0; i < this.menu.items[0].submenu.items.length; i++) {
                             cItem = this.menu.items[0].submenu.items[i];
                             cItem.checked = false;
@@ -198,38 +257,12 @@ function openLink(link){
                         };
                     }.bind(this);
 
-                    change_theme=function(theme){
-                        settings.internWebBrowserStyle = theme;
+                    // change_theme=function(theme){
 
-                        if(theme == "default"){
-                            this.window.$('[data-intern-web-browser="style"]').remove();
-                        }
-                        else{
-                            try{
-                                var head = this.window.document.head
-                                  , style = this.window.document.createElement('style')
+                    // }.bind(this);
 
-                                style.type = 'text/css';
-                                style.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'.css')).toString();
-                                style.dataset.internWebBrowser="style";
-                                head.appendChild(style);
-
-                                if(this.window.location.pathname.match(/^\/forum/) && files.indexOf(theme+"-forum.css") >= 0){
-                                    forumStyle = this.window.document.createElement('style');
-                                    forumStyle.type = 'text/css';
-                                    forumStyle.innerHTML = fs.readFileSync(path.join(__dirname, "themes", theme+'-forum.css')).toString();
-                                    forumStyle.dataset.internWebBrowser="style";
-                                    head.appendChild(forumStyle);
-                                }
-                            }
-                            catch(e){
-                                console.error(e);
-                            }
-                        }
-                    }.bind(this);
-
-                    //load setting theme
-                    change_theme(settings.internWebBrowserStyle);
+                    // //load setting theme
+                    // change_theme(settings.internWebBrowserStyle);
 
                     //add theme options
                     try{
@@ -252,7 +285,10 @@ function openLink(link){
                                         checked:settings.internWebBrowserStyle==themes[i],
                                         click:function(){
                                             this.fn(this.theme);
-                                        }.bind({fn:function(theme){change_theme_menu_check(theme);change_theme(theme);}, theme:themes[i]})
+                                        }.bind({fn:function(theme){
+                                            change_theme_menu_check(theme);
+                                            change_theme(theme);
+                                        }, theme:themes[i]})
                                     })
                                 );
                             };
@@ -277,13 +313,24 @@ function openLink(link){
 // Create a tray icon
 var tray = new gui.Tray({ title: 'Dealabs-notifier', tooltip: manifest.name , icon: 'img/icon.png' });
 tray.on('click', function(){
+    fetcherWindows.reload();
     openLink('http://dealabs.com');
 })
 
 // Create a Menu
 var menu = new gui.Menu();
 
-var notificationItem = new gui.MenuItem({ type: 'normal', label: 'Aucune notification', enabled : false, click : function(){openLink('http://www.dealabs.com/notifications.html')} });
+var notificationItem = new gui.MenuItem(
+    {
+        type: 'normal',
+        label: 'Aucune notification',
+        enabled : false,
+        click : function(){
+            fetcherWindows.reload();
+            openLink('http://www.dealabs.com/notifications.html')
+        }
+    }
+);
 menu.append(notificationItem);
 
 var alerteItem = new gui.MenuItem({ type: 'normal', label: 'Aucune alerte', enabled : false });
@@ -296,7 +343,7 @@ var forumItem = new gui.MenuItem({ type: 'normal', label: 'Aucun nouveau message
 menu.append(forumItem);
 
 menu.append(new gui.MenuItem({ type: 'separator'}));
-var useInternWebBrowser = new gui.MenuItem({ type: 'checkbox', label: 'Use intern browser', checked:!!settings.useInternWebBrowser ,click : function(){settings.useInternWebBrowser = !settings.useInternWebBrowser}.bind(this) });
+var useInternWebBrowser = new gui.MenuItem({ type: 'checkbox', label: 'Navigateur interne', checked:!!settings.useInternWebBrowser ,click : function(){settings.useInternWebBrowser = !settings.useInternWebBrowser}.bind(this) });
 menu.append(useInternWebBrowser);
 
 var exitItem = new gui.MenuItem({ type: 'normal', label: 'Exit', click : function(){win.close();}.bind(this) });
@@ -308,7 +355,10 @@ var copyright2Item = new gui.MenuItem({ type: 'normal', label: 'non affilié à�
 menu.append(copyright2Item);
 tray.menu = menu;
 
-var fetcherWindows = null;
+var fetcherWindows = {
+    reload:function(){
+    }
+};
 
 function destruct(){
     if(tray != null){
@@ -328,27 +378,29 @@ window.onbeforeunload=function(){
     destruct();
 }
 win.on('close', function() {
-    debugger;
-    console.log("close");
+    Log("close");
     win.hide();
     destruct();
     win.close(true);
 });
 
 
+
 function notify(title, text, icon, url){
     var options = {
         icon: icon,
         body: text
-     };
+    };
+
+    Log("notify("+title+", "+text+", "+icon+", "+url+")");
 
     var notification = new Notification(title, options);
 
     if(typeof url != "undefined"){
         notification.onclick = function () {
+            fetcherWindows.reload();
             openLink(this.url);
-        }.bind({url:url})
-        
+        }.bind({url:url});
     }
 }
 
@@ -357,7 +409,15 @@ gui.Window.open('http://www.dealabs.com/forum/notifications.html', {
   width: screen.availWidth,
   height: screen.availHeight,
   show : false
-}, function(cWindows){
+},
+function(cWindows){
+    cWindows.on('error', function(a,b,c){
+        debugger;
+    })
+
+    // if(debugMode)
+    //     cWindows.showDevTools();
+
     fetcherWindows = cWindows;
     cWindows.cb = function(){
         cWindows.hide();
@@ -385,7 +445,7 @@ gui.Window.open('http://www.dealabs.com/forum/notifications.html', {
                     _self.show();
                     _self.window.switch_display('#popup_center_login', '', 'show');
                 }
-            });
+            }.bind(this));
         }
     })
 });
@@ -393,8 +453,17 @@ gui.Window.open('http://www.dealabs.com/forum/notifications.html', {
 var lastForumMenuItem = null;
 
 function updateNotifications(jQuery, current_window){
+    Log("start update", null, null, "start");
+
     if(typeof jQuery == "undefined")
         throw new Error("you need to pass jQuery");
+
+    //remove the timeout
+    if(indexDealabsTimeout != null){
+        Log("clearTimeout");
+        clearTimeout(indexDealabsTimeout);
+    }
+    
 
     nb_notif = parseInt(jQuery('.notif').text());
     try{
@@ -419,48 +488,38 @@ function updateNotifications(jQuery, current_window){
                 });
             };
 
-            async.map(current_notifs, function(item, cb){
-                var imagePath = path.join(os.tmpdir(), path.join(manifest.name+'-'+path.basename(item.icon)));
-                fs.access(imagePath, fs.F_OK, function(err) {
-                    if (!err) {
-                            item.icon = imagePath;
-                            cb(null, item);                        
-                    } else {
-                        var r = request(item.icon);
-                        r.cb = cb;
-                        r.item = item;
-                        r.on('response',  function (res) {
-                           res.pipe(fs.createWriteStream(imagePath, {flag:"w+"})); 
-                        });
-                        r.on('end', function(){
-                            this.item.icon = imagePath;
-                            this.cb(null, this.item);
-                        })
-                    }
-                }.bind({imagePath:imagePath}));
-            }, 
-            function(err, result){
-                menuItem = new gui.MenuItem({ type: 'normal',
-                    label: (this.nb_notif_commentaires == 0? "Aucune" : this.nb_notif_commentaires)+' notification'+(this.nb_notif_commentaires>1?"s":""),
-                    click : function(){
-                        openLink('http://www.dealabs.com/notifications.html');
-                    }
-                });
-                if(result.length>0){
-                    submenu = new gui.Menu();
-                    //on regarde si elles sont déjà affichés
-                    for (var i = result.length - 1; i >= 0; i--) {
-                        if(allNotifications.indexOf(result[i].url) == '-1'){
-                            notify("Vous avez une nouvelle notification", result[i].text, result[i].icon, result[i].url);
-                        }
-                        new_allNotifications.push(result[i].url);
-
-                        submenu.append(new gui.MenuItem({ label: result[i].text, click: function(){openLink(this.url);}.bind({url:result[i].url}) }));
-                    };
-                    menuItem.submenu = submenu;
+            // async.map(current_notifs, function(item, cb){
+            menuItem = new gui.MenuItem({ type: 'normal',
+                label: (this.nb_notif_commentaires == 0? "Aucune" : this.nb_notif_commentaires)+' notification'+(this.nb_notif_commentaires>1?"s":""),
+                click : function(){
+                    fetcherWindows.reload();
+                    openLink('http://www.dealabs.com/notifications.html');
                 }
-                cb(null, menuItem);
-            }.bind({nb_notif_commentaires:this.nb_notif_commentaires}));
+            });
+            if(current_notifs.length>0){
+                submenu = new gui.Menu();
+                //on regarde si elles sont déjà affichés
+                for (var i = current_notifs.length - 1; i >= 0; i--) {
+                    if(allNotifications.indexOf(current_notifs[i].url+current_notifs[i].text) == '-1'){
+                        notify("Vous avez une nouvelle notification", current_notifs[i].text, current_notifs[i].icon, current_notifs[i].url);
+                    }
+                    new_allNotifications.push(current_notifs[i].url+current_notifs[i].text);
+
+                    submenu.append(
+                        new gui.MenuItem(
+                            {
+                                label: current_notifs[i].text,
+                                click: function(){
+                                    fetcherWindows.reload();
+                                    openLink(this.url);
+                                }.bind({url:current_notifs[i].url})
+                            }
+                        )
+                    );
+                };
+                menuItem.submenu = submenu;
+            }
+            cb(null, menuItem);
         }.bind({nb_notif_commentaires:nb_notif_commentaires}),
         alertes: function(cb){
             //on récup les alertes 
@@ -499,6 +558,7 @@ function updateNotifications(jQuery, current_window){
                     type: 'normal',
                     label: (this.nb_alertes == 0? "Aucune" : this.nb_alertes)+' alerte'+(this.nb_alertes>1?"s":""),
                     click : function(){
+                        fetcherWindows.reload();
                         openLink('http://www.dealabs.com/alerts/alerts.html')
                     }
                 });
@@ -507,12 +567,22 @@ function updateNotifications(jQuery, current_window){
                     submenu = new gui.Menu();
                     //on regarde si elles sont déjà affichés
                     for (var i = result.length - 1; i >= 0; i--) {
-                        if(allNotifications.indexOf(result[i].url) == '-1'){
+                        if(allNotifications.indexOf(result[i].url+result[i].text) == '-1'){
                             notify("Vous avez une nouvelle alerte", result[i].text, result[i].icon, result[i].url);
                         }
-                        new_allNotifications.push(result[i].url);
+                        new_allNotifications.push(result[i].url+result[i].text);
 
-                        submenu.append(new gui.MenuItem({ label: result[i].text, click: function(){openLink(this.url);}.bind({url:result[i].url}) }));
+                        submenu.append(
+                            new gui.MenuItem(
+                                {
+                                    label: result[i].text,
+                                    click: function(){
+                                        fetcherWindows.reload();
+                                        openLink(this.url);
+                                    }.bind({url:result[i].url})
+                                }
+                            )
+                        );
                     };
                     menuItem.submenu = submenu;
                 }
@@ -526,6 +596,7 @@ function updateNotifications(jQuery, current_window){
                 type: 'normal',
                 label: (nb_mp == 0? "Aucun" : nb_mp)+' MP'+(nb_mp>1?"s":""),
                 click : function(){
+                    fetcherWindows.reload();
                     openLink($mpContainer.attr('src'))
                 }
             });
@@ -536,6 +607,7 @@ function updateNotifications(jQuery, current_window){
                 type: 'normal',
                 label: "Aucun nouveau message",
                 click : function(){
+                    fetcherWindows.reload();
                     openLink("http://www.dealabs.com/forum/notifications.html")
                 }
             });
@@ -546,48 +618,36 @@ function updateNotifications(jQuery, current_window){
                 nb_notifs=$forumNotifs.length;
                 menuItem.label = (nb_notifs == 0? "Aucun" : nb_notifs)+' nouveau'+(nb_notifs>1?'x':'')+' message'+(nb_notifs>1?"s":""); 
                 if(nb_notifs>0){
-                    
                     //start by download images
-                    async.map($forumNotifs.find('.img_bloc img'), function(item, cb){
-                        var imagePath = path.join(os.tmpdir(), path.join(manifest.name+'-'+path.basename(item.src)));
-                        fs.access(imagePath, fs.F_OK, function(err) {
-                            if (!err) {
-                                cb(null, item);                        
-                            }
-                            else {
-                                var r = request(item.src);
-                                r.cb = cb;
-                                r.item = item;
-                                r.on('response',  function (res) {
-                                   res.pipe(fs.createWriteStream(imagePath, {flag:"w+"})); 
-                                });
-                                r.on('end', function(){
-                                    this.cb(null, this.item);
-                                })
-                            }
-                        });
-                    }, 
-                    function(err, result){
-                        submenu = new gui.Menu();
-                        //on regarde si elles sont déjà affichés
-                        for (var i = $forumNotifs.length - 1; i >= 0; i--) {
-                            $notif = this.window.$($forumNotifs[i]);
-                            notif = {
-                                url : $notif.find('.auteur_pagination_div a:last').attr('href'),
-                                icon : path.join(os.tmpdir(), path.join(manifest.name+'-'+path.basename($notif.find('.img_bloc img').attr('src')))),
-                                text : $notif.find('.title').text().trim()+" par "+$notif.find('.info_bloc a').text().trim()
-                            }
-                            if(allNotifications.indexOf(notif.url) == '-1'){
-                                notify("Nouveau message sur le forum", notif.text, notif.icon, notif.url);
-                            }
-                            new_allNotifications.push(notif.url);
+                    submenu = new gui.Menu();
+                    //on regarde si elles sont déjà affichés
+                    for (var i = $forumNotifs.length - 1; i >= 0; i--) {
+                        $notif = this.window.$($forumNotifs[i]);
+                        notif = {
+                            url : $notif.find('.title a:last').attr('href'),
+                            icon : $notif.find('.img_bloc img').attr('src'),
+                            text : $notif.find('.title').text().trim()+" par "+$notif.find('.info_bloc a').text().trim()
+                        }
+                        if(allNotifications.indexOf(notif.url+notif.text) == '-1'){
+                            notify("Nouveau message sur le forum", notif.text, notif.icon, notif.url);
+                        }
+                        new_allNotifications.push(notif.url+notif.text);
 
-                            submenu.append(new gui.MenuItem({ label: notif.text, click: function(){openLink(this.url);}.bind({url:notif.url}) }));
-                        };
-                        menuItem.submenu = submenu;
-                        this.cb(null, menuItem);
-                    }.bind({window:this,cb:cb}));
+                        submenu.append(
+                            new gui.MenuItem(
+                                {
+                                    label: notif.text,
+                                    click: function(){
+                                        fetcherWindows.reload();
+                                        openLink(this.url);
+                                    }.bind({url:notif.url})
+                                }
+                            )
+                        );
+                    };
+                    menuItem.submenu = submenu;
                 }
+                cb(null, menuItem);
             }
             else{
                 if(lastForumMenuItem != null){
@@ -622,6 +682,7 @@ function updateNotifications(jQuery, current_window){
         catch(e){
         }
 
+        Log('notifications updated ?', null, null, 'start');
         for (var i = 0; i < menu.items.length; i++) {
             tmpLength = [];
             if(typeof tray.menu.items[i].submenu != "undefined" && typeof tray.menu.items[i].submenu.items != "undefined") 
@@ -645,16 +706,37 @@ function updateNotifications(jQuery, current_window){
                 }
             };
         };
-        if(need_update)
+        Log((need_update?"yes":"no"), null, false, 'end');
+        if(need_update){
+            Log("update tray", null, null, "start");
+            for (var i = 0; i < menu.items.length; i++) {
+                try{
+                    if(typeof menu.items[i].submenu == "undefined")
+                        Log(menu.items[i].label);
+                    else
+                        Log(menu.items[i].label, null, null, "start");
+                        
+                    //just for crash
+                    for (var j = menu.items[i].submenu.items.length - 1; j >= 0; j--) {
+                        Log(menu.items[i].submenu.items[j].label);
+                    }
+                    Log("", null, null, "end");
+                }
+                catch(e){
+                }
+            };
+            Log("", null, null, "end");
             tray.menu = menu;
-
-        if(indexDealabsTimeout != null){
-            clearTimeout(indexDealabsTimeout);
         }
         
+        Log("setTimeout");
+        // console.log('end');
+        Log("endUpdate", null, null, "end");
         indexDealabsTimeout = setTimeout(function(){
+            Log('startTimeout');
             global.gc();
             this.reload();
+            Log('finishTimeout');
             // if(fetcherWindows != null){
             //     // blackhole(fetcherWindows.window.document,null,  fetcherWindows.window);
             //     fetcherWindows.reload();
