@@ -732,7 +732,8 @@ function updateNotifications(jQuery, current_window){
         Log("setTimeout");
         // console.log('end');
         Log("endUpdate", null, null, "end");
-        indexDealabsTimeout = setTimeout(function(){
+
+        reloadFunction = function(){
             Log('startTimeout');
             global.gc();
             this.reload();
@@ -741,7 +742,10 @@ function updateNotifications(jQuery, current_window){
             //     // blackhole(fetcherWindows.window.document,null,  fetcherWindows.window);
             //     fetcherWindows.reload();
             // }
-        }.bind(fetcherWindows), time_between_refresh);
+                indexDealabsTimeout = setTimeout(reloadFunction, time_between_refresh);
+        }.bind(fetcherWindows)
+
+        indexDealabsTimeout = setTimeout(reloadFunction, time_between_refresh);
     })
 }
 
