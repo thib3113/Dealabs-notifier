@@ -36,83 +36,6 @@ var internWebBrowser = null;
 
 var updateSuccess = false;
 
-// var memwatch = require('memwatch-next');
-// memwatch.on('leak', function(info) { 
-//     Log(info);
-//     notify("memory leak detected !", info.reason);
-// });
-
-/**
- *
- * Author: Robert (CMoses) Kałamański
- *
- * DOM tree and JS object disintegrator.
- *
- * When DOM node is given then this function will break DOM tree into unreferenced nodes and remove all attributes.
- * If JS object is passed then it will be broken down into unreferenced elements. Also all DOM nodes referenced by
- * object will be destroyed.
- *
- */
-function blackhole( object, path) {
-    if(Object.is(object, process) || object === global)
-        return;
-
-    // debugger;
-    var child
-      , type
-      , attrs
-      , keys
-      , i;
-    path = path || '';
-    // Object must not be empty.
-    if ( object ) {
-        // DOM node.
-        if ( object instanceof Node ) {
-            // debugger;
-            if ( object instanceof HTMLDocument ) {
-                path = 'DOCUMENT';
-            } else {
-                path += '>' + object.nodeName;
-            }
-            // Remove attributes.
-            attrs = object.attributes;
-            if ( attrs ) {
-                for ( i=attrs.length-1; i>=0; i-- ) {
-                    // Log('X DOM: ' + path + '[' + attrs[i].name + '=' + attrs[i].value + ']');
-                    attrs[i] = null;
-                }
-            }
-
-            // Remove childs.
-            while ( (child = object.firstChild) ) {
-                // Log('X DOM: ' + path + '>' + child.nodeName);
-                blackhole(child, path);
-                child.remove();
-            }
-        }
-
-        // JS object.
-        else if ( typeof object === 'object' ) {
-
-            // debugger;
-            keys = Object.keys(object);
-            for ( i=keys.length-1; i>=0; i-- ) {
-                Log('X OBJ: ' + path + '.' + keys[i]);
-                // JS function.
-                if ( typeof object[keys[i]] === 'function' ) {
-                    object[keys[i]] = null;
-                }
-                // JS object.
-                else if ( typeof object === 'object' ) {
-                    blackhole(object[keys[i]], path + '.' + keys[i]);
-                }
-                object[keys[i]] = null;
-            }
-        }
-    }
-}
-
-
 function Settings(){
     _settings = {
         _useInternWebBrowser : null,
@@ -407,6 +330,10 @@ function notify(title, text, icon, url){
             this.notification.close();
         }.bind({url:url, notification:notification});
     }
+
+    setTimeout(function(){
+        this.notification.close();
+    }.bind({notification:notification}), 60000)
 }
 
 fetcherWindowsConfObject = {
@@ -431,7 +358,6 @@ fetcherWindowsConfObject = {
             updateNotifications(cWindows.window.$, cWindows.window);
         }
         cWindows.on('loaded', function(){
-            cWindows.window.blackhole = blackhole;
             if(cWindows.window.localStorage.getItem("knows_mobile_apps_exist") != true)
                 cWindows.window.localStorage.setItem("knows_mobile_apps_exist", true);
                 
@@ -480,7 +406,7 @@ function updateNotifications(jQuery, current_window){
         nb_alertes = parseInt(jQuery("#alertes").text().match(/\(([0-9]*)\)/)[1]);
     }
     catch(e){
-        Log(e, "error", true);
+        // Log(e, "error", true);
         nb_alertes = 0;
     }
     nb_notif_commentaires = nb_notif - nb_alertes;
@@ -607,9 +533,10 @@ function updateNotifications(jQuery, current_window){
                 type: 'normal',
                 label: (nb_mp == 0? "Aucun" : nb_mp)+' MP'+(nb_mp>1?"s":""),
                 click : function(){
+                    console.log(this.url);
                     fetcherWindows.reload();
-                    openLink($mpContainer.attr('src'))
-                }
+                    openLink(this.url)
+                }.bind({url:$mpContainer.attr('href')})
             });
             cb(null, menuItem);
         },
@@ -736,7 +663,7 @@ function updateNotifications(jQuery, current_window){
                     Log("", null, null, "end");
                 }
                 catch(e){
-                    Log(e, "error", true);
+                    // Log(e, "error", true);
                 }
             };
             Log("", null, null, "end");
@@ -759,10 +686,6 @@ function updateNotifications(jQuery, current_window){
             global.gc();
             this.reload();
             Log('finishTimeout');
-            // if(fetcherWindows != null){
-            //     // blackhole(fetcherWindows.window.document,null,  fetcherWindows.window);
-            //     fetcherWindows.reload();
-            // }
                 indexDealabsTimeout = setTimeout(reloadFunction, time_between_refresh);
         }.bind(fetcherWindows)
 
