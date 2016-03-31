@@ -84,7 +84,7 @@ function Logger(pLogLevel, pFolderName){
             case "error":
                 type_class = "danger";
                 if(pGroup != "start")
-                    console.log(message);
+                    console.error(message);
             break;
             case "warning":
                 type_class = "warning";

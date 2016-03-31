@@ -34,6 +34,7 @@ var indexDealabsTimeout = null;
 
 var internWebBrowser = null;
 
+var updateSuccess = false;
 
 // var memwatch = require('memwatch-next');
 // memwatch.on('leak', function(info) { 
@@ -152,6 +153,7 @@ function Settings(){
         }
         catch(e){
             cSettings = {};
+            Log(e, "error", true);
         }    
         return cSettings;
     };
@@ -163,7 +165,7 @@ function Settings(){
         }
         catch(e){
             alert("One error appear when we will save setting file");
-            Log(e);
+            Log(e, "error", true);
         }
         finally{
             fs.closeSync(curFile);
@@ -211,6 +213,7 @@ function openLink(link){
                             }
                         }
                         catch(e){
+                            Log(e, "error", true);
                             console.error(e);
                         }
                     }
@@ -299,6 +302,7 @@ function openLink(link){
                         }
                     }
                     catch(e){
+                        Log(e, "error", true);
                         console.error(e);
                     }
                 }.bind(internWebBrowser))
@@ -400,55 +404,61 @@ function notify(title, text, icon, url){
         notification.onclick = function () {
             fetcherWindows.reload();
             openLink(this.url);
-        }.bind({url:url});
+            this.notification.close();
+        }.bind({url:url, notification:notification});
     }
 }
 
-gui.Window.open('http://www.dealabs.com/forum/notifications.html', {
-  position: 'center',
-  width: screen.availWidth,
-  height: screen.availHeight,
-  show : false
-},
-function(cWindows){
-    cWindows.on('error', function(a,b,c){
-        debugger;
-    })
+fetcherWindowsConfObject = {
+  url : 'http://www.dealabs.com/forum/notifications.html',
+  config : {
+      position: 'center',
+      width: screen.availWidth,
+      height: screen.availHeight,
+      show : false,
+  },
+  cb : function(cWindows){
+        cWindows.on('error', function(a,b,c){
+            debugger;
+        })
 
-    // if(debugMode)
-    //     cWindows.showDevTools();
+        // if(debugMode)
+        //     cWindows.showDevTools();
 
-    fetcherWindows = cWindows;
-    cWindows.cb = function(){
-        cWindows.hide();
-        updateNotifications(cWindows.window.$, cWindows.window);
-    }
-    cWindows.on('loaded', function(){
-        cWindows.window.blackhole = blackhole;
-        if(cWindows.window.localStorage.getItem("knows_mobile_apps_exist") != true)
-            cWindows.window.localStorage.setItem("knows_mobile_apps_exist", true);
-            
-        var _self = cWindows;
-        if(cWindows.window.location.hostname.match(/dealabs\.com$/) ){
-            cWindows.cookies.getAll({}, function(cookies){
-                authentified = false;
-                for( name in cookies){
-                    if(cookies[name].name == "dealabs_token" && cookies[name].value != ""){
-                        authentified = true;
-                        break;
-                    }
-                }
-                if(authentified){
-                    _self.cb(cookies);
-                }
-                else{
-                    _self.show();
-                    _self.window.switch_display('#popup_center_login', '', 'show');
-                }
-            }.bind(this));
+        fetcherWindows = cWindows;
+        cWindows.cb = function(){
+            cWindows.hide();
+            updateNotifications(cWindows.window.$, cWindows.window);
         }
-    })
-});
+        cWindows.on('loaded', function(){
+            cWindows.window.blackhole = blackhole;
+            if(cWindows.window.localStorage.getItem("knows_mobile_apps_exist") != true)
+                cWindows.window.localStorage.setItem("knows_mobile_apps_exist", true);
+                
+            var _self = cWindows;
+            if(cWindows.window.location.hostname.match(/dealabs\.com$/) ){
+                cWindows.cookies.getAll({}, function(cookies){
+                    authentified = false;
+                    for( name in cookies){
+                        if(cookies[name].name == "dealabs_token" && cookies[name].value != ""){
+                            authentified = true;
+                            break;
+                        }
+                    }
+                    if(authentified){
+                        _self.cb(cookies);
+                    }
+                    else{
+                        _self.show();
+                        _self.window.switch_display('#popup_center_login', '', 'show');
+                    }
+                }.bind(this));
+            }
+        })
+    }
+}
+
+gui.Window.open(fetcherWindowsConfObject.url, fetcherWindowsConfObject.config ,fetcherWindowsConfObject.cb);
 
 var lastForumMenuItem = null;
 
@@ -470,6 +480,7 @@ function updateNotifications(jQuery, current_window){
         nb_alertes = parseInt(jQuery("#alertes").text().match(/\(([0-9]*)\)/)[1]);
     }
     catch(e){
+        Log(e, "error", true);
         nb_alertes = 0;
     }
     nb_notif_commentaires = nb_notif - nb_alertes;
@@ -680,6 +691,7 @@ function updateNotifications(jQuery, current_window){
                 need_update = true;
         }
         catch(e){
+            Log(e, "error", true);
         }
 
         Log('notifications updated ?', null, null, 'start');
@@ -702,6 +714,7 @@ function updateNotifications(jQuery, current_window){
                 }
                 catch(e){
                     need_update = true;
+                    Log(e, "error", true);
                     break;
                 }
             };
@@ -723,6 +736,7 @@ function updateNotifications(jQuery, current_window){
                     Log("", null, null, "end");
                 }
                 catch(e){
+                    Log(e, "error", true);
                 }
             };
             Log("", null, null, "end");
@@ -732,8 +746,15 @@ function updateNotifications(jQuery, current_window){
         Log("setTimeout");
         // console.log('end');
         Log("endUpdate", null, null, "end");
+        updateSuccess = true;
 
         reloadFunction = function(){
+            if(!updateSuccess){
+                notify('something is wrong', 'timeout restart without update, reopen');
+                fetcherWindows.close();
+                gui.Window.open(fetcherWindowsConfObject.url, fetcherWindowsConfObject.config ,fetcherWindowsConfObject.cb);
+            }
+            updateSuccess = false;
             Log('startTimeout');
             global.gc();
             this.reload();
