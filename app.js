@@ -26,9 +26,11 @@ var allNotifications = [];
 var logger = new Logger(logLevel, manifest.name);
 function Log(pMessage, pType, pStackTrace, pGroup){
     logger.log(pMessage, pType, pStackTrace, pGroup)
-    if(typeof pMessage == "undefined")
-        console.trace();
 }
+
+console.log('start');
+memory = process.memoryUsage();
+console.log('rss:'+memory.rss+', heapTotal:'+memory.heapTotal+', heapUsed:'+memory.heapUsed);
 
 var indexDealabsTimeout = null;
 
@@ -677,11 +679,14 @@ function updateNotifications(jQuery, current_window){
 
         reloadFunction = function(){
             if(!updateSuccess){
-                notify('something is wrong', 'timeout restart without update, reopen');
+                if(debugMode)
+                    notify('something is wrong', 'timeout restart without update, reopen');
                 fetcherWindows.close();
                 gui.Window.open(fetcherWindowsConfObject.url, fetcherWindowsConfObject.config ,fetcherWindowsConfObject.cb);
             }
             updateSuccess = false;
+            memory = process.memoryUsage();
+            console.log('rss:'+memory.rss+', heapTotal:'+memory.heapTotal+', heapUsed:'+memory.heapUsed);
             Log('startTimeout');
             global.gc();
             this.reload();
