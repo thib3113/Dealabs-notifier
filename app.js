@@ -242,8 +242,10 @@ function openLink(link){
 // Create a tray icon
 var tray = new gui.Tray({ title: 'Dealabs-notifier', tooltip: manifest.name , icon: 'img/icon.png' });
 tray.on('click', function(){
-    fetcherWindows.reload();
     openLink('http://dealabs.com');
+    setTimeout(function(){
+        this.fetcherWindows.reload();
+    }.bind({fetcherWindows:fetcherWindows}), 2000)
 })
 
 // Create a Menu
@@ -255,8 +257,10 @@ var notificationItem = new gui.MenuItem(
         label: 'Aucune notification',
         enabled : false,
         click : function(){
-            fetcherWindows.reload();
             openLink('http://www.dealabs.com/notifications.html')
+            setTimeout(function(){
+                this.fetcherWindows.reload();
+            }.bind({fetcherWindows:fetcherWindows}), 2000)
         }
     }
 );
@@ -327,8 +331,11 @@ function notify(title, text, icon, url){
 
     if(typeof url != "undefined"){
         notification.onclick = function () {
-            fetcherWindows.reload();
             openLink(this.url);
+            // setTimeout(function(){
+            //     this.fetcherWindows.reload();
+            // }.bind({fetcherWindows:fetcherWindows}), 2000)
+            fetcherWindows.reload();
             this.notification.close();
         }.bind({url:url, notification:notification});
     }
@@ -540,6 +547,39 @@ function updateNotifications(jQuery, current_window){
                     openLink(this.url)
                 }.bind({url:$mpContainer.attr('href')})
             });
+            $mps = jQuery('#messagerie_popup .item');
+            if($mps.length>0)
+              menuItem.click = function(){
+                  console.log(this.url);
+                  fetcherWindows.reload();
+                  openLink(this.url)
+              }.bind({url:jQuery('#messagerie_popup .button a').attr('href')});
+
+            submenu = new gui.Menu();
+            
+            for (var i = $mps.length - 1; i >= 0; i--) {
+              text = jQuery($mps[i]).find('p:first()').text()+' par '+jQuery($mps[i]).find('span').text();
+              img = jQuery($mps[i]).find('img').attr('src');
+              link = jQuery($mps[i]).find('a').attr('href');
+
+              if(allNotifications.indexOf('mp-'+link+text) == '-1')
+                notify("Nouveau message privé", text, img, link);
+              new_allNotifications.push('mp-'+link+text);
+
+              submenu.append(
+                  new gui.MenuItem(
+                      {
+                          label: text,
+                          click: function(){
+                              fetcherWindows.reload();
+                              openLink(this.url);
+                          }.bind({url:link})
+                      }
+                  )
+              );
+            }
+            
+            menuItem.submenu = submenu;
             cb(null, menuItem);
         },
         forum: function(cb){
@@ -558,7 +598,6 @@ function updateNotifications(jQuery, current_window){
                 nb_notifs=$forumNotifs.length;
                 menuItem.label = (nb_notifs == 0? "Aucun" : nb_notifs)+' nouveau'+(nb_notifs>1?'x':'')+' message'+(nb_notifs>1?"s":""); 
                 if(nb_notifs>0){
-                    //start by download images
                     submenu = new gui.Menu();
                     //on regarde si elles sont déjà affichés
                     for (var i = $forumNotifs.length - 1; i >= 0; i--) {
