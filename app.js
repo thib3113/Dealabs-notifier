@@ -1,4 +1,4 @@
-var time_between_refresh = 60000; //time between refresh, 60s
+var time_between_refresh = 30000; //time between refresh, 60s
 var logLevel = 2; //2 = verbose, 1 = warnings, 0 = errors
 
 ////////////////////////
@@ -18,8 +18,21 @@ if(debugMode){
     win.showDevTools();
 }
 
+
 var os = require('os');
 var manifest = gui.App.manifest;
+
+// try{
+//     require('scribe-js')({
+//         rootPath:path.join(os.tmpdir(), manifest.name)
+//     });
+//     console = process.console;
+    
+// }
+// catch(e){
+//     console.error(e);
+// }
+
 var opener = require('open');
 var __dirname = process.cwd();
 var allNotifications = [];
@@ -37,6 +50,20 @@ var indexDealabsTimeout = null;
 var internWebBrowser = null;
 
 var updateSuccess = false;
+
+function openDLlinks(link){
+    link = link || this.dlLink || null;
+    
+    if(link === null){
+        debugger;
+        return;
+    }
+
+    openLink(link);
+    setTimeout(function(){
+        fetcherWindows.reload();
+    }, 2000)
+}
 
 function Settings(){
     _settings = {
@@ -241,12 +268,14 @@ function openLink(link){
 
 // Create a tray icon
 var tray = new gui.Tray({ title: 'Dealabs-notifier', tooltip: manifest.name , icon: 'img/icon.png' });
-tray.on('click', function(){
-    openLink('http://dealabs.com');
-    setTimeout(function(){
-        this.fetcherWindows.reload();
-    }.bind({fetcherWindows:fetcherWindows}), 2000)
-})
+tray.dlLink = 'http://dealabs.com';
+tray.on('click', openDLlinks);
+ // function(){
+ //    openLink('http://dealabs.com');
+ //    setTimeout(function(){
+ //        this.fetcherWindows.reload();
+ //    }.bind({fetcherWindows:fetcherWindows}), 2000)
+// })
 
 // Create a Menu
 var menu = new gui.Menu();
@@ -257,10 +286,7 @@ var notificationItem = new gui.MenuItem(
         label: 'Aucune notification',
         enabled : false,
         click : function(){
-            openLink('http://www.dealabs.com/notifications.html')
-            setTimeout(function(){
-                this.fetcherWindows.reload();
-            }.bind({fetcherWindows:fetcherWindows}), 2000)
+            openDLlinks('http://www.dealabs.com/notifications.html');
         }
     }
 );
@@ -279,7 +305,7 @@ menu.append(new gui.MenuItem({ type: 'separator'}));
 var useInternWebBrowser = new gui.MenuItem({ type: 'checkbox', label: 'Navigateur interne', checked:!!settings.useInternWebBrowser ,click : function(){settings.useInternWebBrowser = !settings.useInternWebBrowser}.bind(this) });
 menu.append(useInternWebBrowser);
 
-var exitItem = new gui.MenuItem({ type: 'normal', label: 'Exit', click : function(){win.close();}.bind(this) });
+var exitItem = new gui.MenuItem({ type: 'normal', label: 'Fermer', click : function(){win.close();}.bind(this) });
 menu.append(exitItem);
 var copyrightItem = new gui.MenuItem({ type: 'normal', label: 'Par thib3113', enabled: false });
 menu.append(copyrightItem);
@@ -318,31 +344,36 @@ win.on('close', function() {
 });
 
 
+var currentPopupNofification = {};
+function notify(title, text, icon, url, slug){
+    slug = slug || null;
 
-function notify(title, text, icon, url){
     var options = {
         icon: icon,
         body: text
     };
 
+    if(slug != null && typeof currentPopupNofification[slug] != "undefined" && currentPopupNofification[slug] instanceof Notification)
+        currentPopupNofification[slug].close()
+
     Log("notify("+title+", "+text+", "+icon+", "+url+")");
 
     var notification = new Notification(title, options);
 
+    if(slug != null)
+        currentPopupNofification[slug] = notification;
+
     if(typeof url != "undefined"){
         notification.onclick = function () {
-            openLink(this.url);
-            // setTimeout(function(){
-            //     this.fetcherWindows.reload();
-            // }.bind({fetcherWindows:fetcherWindows}), 2000)
-            fetcherWindows.reload();
+            openDLlinks(this.url);
             this.notification.close();
-        }.bind({url:url, notification:notification});
+        }.bind({notification:notification, url:url});
     }
 
-    setTimeout(function(){
-        this.notification.close();
-    }.bind({notification:notification}), 60000)
+
+    // setTimeout(function(){
+    //     this.notification.close();
+    // }.bind({notification:notification}), 60000)
 }
 
 fetcherWindowsConfObject = {
@@ -438,8 +469,7 @@ function updateNotifications(jQuery, current_window){
             menuItem = new gui.MenuItem({ type: 'normal',
                 label: (this.nb_notif_commentaires == 0? "Aucune" : this.nb_notif_commentaires)+' notification'+(this.nb_notif_commentaires>1?"s":""),
                 click : function(){
-                    fetcherWindows.reload();
-                    openLink('http://www.dealabs.com/notifications.html');
+                    openDLlinks('http://www.dealabs.com/notifications.html')
                 }
             });
             if(current_notifs.length>0){
@@ -447,7 +477,7 @@ function updateNotifications(jQuery, current_window){
                 //on regarde si elles sont déjà affichés
                 for (var i = current_notifs.length - 1; i >= 0; i--) {
                     if(allNotifications.indexOf(current_notifs[i].url+current_notifs[i].text) == '-1'){
-                        notify("Vous avez une nouvelle notification", current_notifs[i].text, current_notifs[i].icon, current_notifs[i].url);
+                        notify("Vous avez une nouvelle notification", current_notifs[i].text, current_notifs[i].icon, current_notifs[i].url, current_notifs[i].text);
                     }
                     new_allNotifications.push(current_notifs[i].url+current_notifs[i].text);
 
@@ -456,8 +486,7 @@ function updateNotifications(jQuery, current_window){
                             {
                                 label: current_notifs[i].text,
                                 click: function(){
-                                    fetcherWindows.reload();
-                                    openLink(this.url);
+                                    openDLlinks(this.url)
                                 }.bind({url:current_notifs[i].url})
                             }
                         )
@@ -504,8 +533,7 @@ function updateNotifications(jQuery, current_window){
                     type: 'normal',
                     label: (this.nb_alertes == 0? "Aucune" : this.nb_alertes)+' alerte'+(this.nb_alertes>1?"s":""),
                     click : function(){
-                        fetcherWindows.reload();
-                        openLink('http://www.dealabs.com/alerts/alerts.html')
+                        openDLlinks('http://www.dealabs.com/alerts/alerts.html');
                     }
                 });
 
@@ -514,7 +542,7 @@ function updateNotifications(jQuery, current_window){
                     //on regarde si elles sont déjà affichés
                     for (var i = result.length - 1; i >= 0; i--) {
                         if(allNotifications.indexOf(result[i].url+result[i].text) == '-1'){
-                            notify("Vous avez une nouvelle alerte", result[i].text, result[i].icon, result[i].url);
+                            notify("Vous avez une nouvelle alerte", result[i].text, result[i].icon, result[i].url, result[i].text);
                         }
                         new_allNotifications.push(result[i].url+result[i].text);
 
@@ -523,8 +551,7 @@ function updateNotifications(jQuery, current_window){
                                 {
                                     label: result[i].text,
                                     click: function(){
-                                        fetcherWindows.reload();
-                                        openLink(this.url);
+                                        openDLlinks(this.url);
                                     }.bind({url:result[i].url})
                                 }
                             )
@@ -542,44 +569,41 @@ function updateNotifications(jQuery, current_window){
                 type: 'normal',
                 label: (nb_mp == 0? "Aucun" : nb_mp)+' MP'+(nb_mp>1?"s":""),
                 click : function(){
-                    console.log(this.url);
-                    fetcherWindows.reload();
-                    openLink(this.url)
+                    openDLlinks(this.url);
                 }.bind({url:$mpContainer.attr('href')})
             });
             $mps = jQuery('#messagerie_popup .item');
             if($mps.length>0)
               menuItem.click = function(){
-                  console.log(this.url);
-                  fetcherWindows.reload();
-                  openLink(this.url)
+                  openDLlinks(this.url)
               }.bind({url:jQuery('#messagerie_popup .button a').attr('href')});
 
-            submenu = new gui.Menu();
-            
-            for (var i = $mps.length - 1; i >= 0; i--) {
-              text = jQuery($mps[i]).find('p:first()').text()+' par '+jQuery($mps[i]).find('span').text();
-              img = jQuery($mps[i]).find('img').attr('src');
-              link = jQuery($mps[i]).find('a').attr('href');
+            if(nb_mp > 0){
+                submenu = new gui.Menu();
+                for (var i = $mps.length - 1; i >= 0; i--) {
+                  name_mp = jQuery($mps[i]).find('p:first()').text();
+                  sender_mp = jQuery($mps[i]).find('span').text()
+                  img = jQuery($mps[i]).find('img').attr('src');
+                  link = jQuery($mps[i]).find('a').attr('href');
 
-              if(allNotifications.indexOf('mp-'+link+text) == '-1')
-                notify("Nouveau message privé", text, img, link);
-              new_allNotifications.push('mp-'+link+text);
+                  if(allNotifications.indexOf('mp-'+link+name_mp+' par '+sender_mp) == '-1')
+                    notify("Nouveau message privé", name_mp+' par '+sender_mp, img, link, name_mp);
+                  new_allNotifications.push('mp-'+link+name_mp+' par '+sender_mp);
 
-              submenu.append(
-                  new gui.MenuItem(
-                      {
-                          label: text,
-                          click: function(){
-                              fetcherWindows.reload();
-                              openLink(this.url);
-                          }.bind({url:link})
-                      }
-                  )
-              );
-            }
-            
-            menuItem.submenu = submenu;
+                  submenu.append(
+                      new gui.MenuItem(
+                          {
+                              label: text,
+                              click: function(){
+                                  openDLlinks(this.url);
+                              }.bind({url:link})
+                          }
+                      )
+                  );
+                }
+                menuItem.submenu = submenu;
+            }            
+
             cb(null, menuItem);
         },
         forum: function(cb){
@@ -587,8 +611,7 @@ function updateNotifications(jQuery, current_window){
                 type: 'normal',
                 label: "Aucun nouveau message",
                 click : function(){
-                    fetcherWindows.reload();
-                    openLink("http://www.dealabs.com/forum/notifications.html")
+                    openDLlinks("http://www.dealabs.com/forum/notifications.html")
                 }
             });
 
@@ -605,20 +628,20 @@ function updateNotifications(jQuery, current_window){
                         notif = {
                             url : $notif.find('.title a:last').attr('href'),
                             icon : $notif.find('.img_bloc img').attr('src'),
-                            text : $notif.find('.title').text().trim()+" par "+$notif.find('.info_bloc a').text().trim()
+                            title : $notif.find('.title').text().trim(),
+                            author :$notif.find('.info_bloc a').text().trim()
                         }
-                        if(allNotifications.indexOf(notif.url+notif.text) == '-1'){
-                            notify("Nouveau message sur le forum", notif.text, notif.icon, notif.url);
+                        if(allNotifications.indexOf(notif.title+notif.author) == '-1'){
+                            notify("Nouveau message sur le forum", notif.title+" par "+notif.author, notif.icon, notif.url, notif.title);
                         }
-                        new_allNotifications.push(notif.url+notif.text);
+                        new_allNotifications.push(notif.title+notif.author);
 
                         submenu.append(
                             new gui.MenuItem(
                                 {
-                                    label: notif.text,
+                                    label: notif.title+" par "+notif.author,
                                     click: function(){
-                                        fetcherWindows.reload();
-                                        openLink(this.url);
+                                        openDLlinks(this.url);
                                     }.bind({url:notif.url})
                                 }
                             )
@@ -682,7 +705,7 @@ function updateNotifications(jQuery, current_window){
                 }
                 catch(e){
                     need_update = true;
-                    Log(e, "error", true);
+                    // Log(e, "error", true);
                     break;
                 }
             };
